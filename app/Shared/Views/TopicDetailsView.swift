@@ -34,6 +34,8 @@ struct TopicDetailsView: View {
   @StateObject var prefs = PreferencesStorage.shared
   @StateObject var users = UsersModel.shared
   @StateObject var alert = ToastModel.editorAlert
+
+  // --- Web 调试所需状态 ---
   @State private var showWebDebugSheet = false
   @State private var webDebugText: String = ""
 
@@ -191,14 +193,14 @@ struct TopicDetailsView: View {
           Button(action: { showJumpSelector = true }) {
             Label("Jump to...", systemImage: "arrow.up.arrow.down")
           }
-        }
-        // --- WEB 调试入口：抓取 read.php 并解析 ---
-Button {
-  tryWebFetchWebDebug()
-} label: {
-  Label("Try Web Fetch (Debug)", systemImage: "antenna.radiowaves.left.and.right")
-}
 
+          // --- WEB 调试入口：抓取 read.php 并解析 ---
+          Button {
+            tryWebFetchWebDebug()
+          } label: {
+            Label("Try Web Fetch (Debug)", systemImage: "antenna.radiowaves.left.and.right")
+          }
+        }
       }
 
       #if os(iOS)
@@ -468,17 +470,23 @@ Button {
       }
       // Action Navigation End
       .onReceive(dataSource.$lastRefreshTime) { _ in mayScrollToJumpFloor() }
-      .sheet(isPresented: $showJumpSelector) { TopicJumpSelectorView(maxFloor: maxFloor, initialFloor: floorToJump ?? 0, floorToJump: $floorToJump, pageToJump: $dataSource.loadFromPage) }
+      .sheet(isPresented: $showJumpSelector) {
+        TopicJumpSelectorView(
+          maxFloor: maxFloor,
+          initialFloor: floorToJump ?? 0,
+          floorToJump: $floorToJump,
+          pageToJump: $dataSource.loadFromPage
+        )
+      }
+      .sheet(isPresented: $showWebDebugSheet) {
+        ScrollView {
+          Text(webDebugText)
+            .textSelection(.enabled)
+            .padding()
+            .font(.callout)
+        }
+      }
   }
-  .sheet(isPresented: $showWebDebugSheet) {
-  ScrollView {
-    Text(webDebugText)
-      .textSelection(.enabled)
-      .padding()
-      .font(.callout)
-  }
-}
-
 
   var body: some View {
     main
@@ -639,30 +647,31 @@ Button {
     if e.isXMLParseError, prefs.autoOpenInBrowserWhenBanned {
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) {
         openInBrowser()
-        func tryWebFetchWebDebug(page: Int = 1) {
-  Task {
-    do {
-      let pageData = try await NGAWebRepository.shared.loadThreadWeb(tid: topic.id, page: page)
-      let first = pageData.posts.first
-      let snippet = (first?.html ?? "").prefix(300)
-      self.webDebugText = """
-      ✅ Web fetch OK
-      tid=\(topic.id) page=\(page)
-      posts=\(pageData.posts.count) hasNext=\(pageData.hasNext)
-      first.author=\(first?.author ?? "-")
-      first.time=\(first?.timeText ?? "-")
-
-      html snippet:
-      \(snippet)
-      """
-      self.showWebDebugSheet = true
-    } catch {
-      self.webDebugText = "❌ Web fetch failed: \(error)"
-      self.showWebDebugSheet = true
+      }
     }
   }
-}
 
+  // MARK: - Web debug fetch
+  func tryWebFetchWebDebug(page: Int = 1) {
+    Task {
+      do {
+        let pageData = try await NGAWebRepository.shared.loadThreadWeb(tid: topic.id, page: page)
+        let first = pageData.posts.first
+        let snippet = (first?.html ?? "").prefix(300)
+        self.webDebugText = """
+        ✅ Web fetch OK
+        tid=\(topic.id) page=\(page)
+        posts=\(pageData.posts.count) hasNext=\(pageData.hasNext)
+        first.author=\(first?.author ?? "-")
+        first.time=\(first?.timeText ?? "-")
+
+        html snippet:
+        \(snippet)
+        """
+        self.showWebDebugSheet = true
+      } catch {
+        self.webDebugText = "❌ Web fetch failed: \(error)"
+        self.showWebDebugSheet = true
       }
     }
   }
