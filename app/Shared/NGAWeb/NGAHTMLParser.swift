@@ -88,4 +88,62 @@ final class NGAHTMLParser {
     }
 
     private func extractFloorNo(from raw: String) -> Int? {
-        // 在“#12 / 1
+        // 在“#12 / 12楼 / 12 樓”等文本附近尝试取数字
+        if let text = firstCapture(in: raw, pattern: #"(#\s*\d+|\d+\s*楼|\d+\s*樓)"#) {
+            let digits = text.replacingOccurrences(of: "#", with: "")
+                .components(separatedBy: CharacterSet.decimalDigits.inverted)
+                .joined()
+            return Int(digits)
+        }
+        return nil
+    }
+
+    // MARK: - 清洗：图片/链接绝对化、懒加载修正、去掉脚本样式
+    private func cleanContent(_ input: String) -> String {
+        var s = input
+
+        // 1) 移除 <script> 与 <style>（最粗暴但安全）
+        s = replaceAll(in: s, pattern: #"<\s*script[^>]*>[\s\S]*?<\s*/\s*script\s*>"#, with: "")
+        s = replaceAll(in: s, pattern: #"<\s*style[^>]*>[\s\S]*?<\s*/\s*style\s*>"#,  with: "")
+
+        // 2) 懒加载：data-src / zoomfile / srcset → src
+        // data-src="...": 取其值到 src
+        s = replaceAll(in: s, pattern: #"data-src="([^"]+)""#, with: #"src="$1""#)
+        // zoomfile="...": 取其值到 src
+        s = replaceAll(in: s, pattern: #"zoomfile="([^"]+)""#, with: #"src="$1""#)
+        // srcset="url 1x, ..."：取第一个 url 到 src
+        s = replaceAll(in: s, pattern: #"srcset="([^",\s]+)[^"]*""#, with: #"src="$1""#)
+
+        // 3) 绝对化图片/超链接
+        // src/href="//..." → https://...
+        s = replaceAll(in: s, pattern: #"(?i)(src|href)="\/\/"#, with: #"$1="https://"#)
+        // src/href="/..."  → https://nga.178.com/...
+        s = replaceAll(in: s, pattern: #"(?i)(src|href)="/([^"]*)""#, with: #"$1="https://nga.178.com/$2""#)
+
+        return s
+    }
+
+    // MARK: - Helpers
+    private func firstCapture(in text: String, pattern: String, group: Int = 1) -> String? {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return nil }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        guard let m = regex.firstMatch(in: text, options: [], range: range) else { return nil }
+        guard group <= m.numberOfRanges else { return nil }
+        if let r = Range(m.range(at: group), in: text) { return String(text[r]) }
+        return nil
+    }
+
+    private func replaceAll(in text: String, pattern: String, with templ: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return text }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        return regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: templ)
+    }
+
+    private func stripHTML(_ s: String) -> String {
+        replaceAll(in: s, pattern: #"<[^>]+>"#, with: "")
+            .replacingOccurrences(of: "&nbsp;", with: " ")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&amp;", with: "&")
+    }
+}
